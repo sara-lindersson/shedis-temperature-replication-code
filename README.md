@@ -27,7 +27,7 @@ To replicate the results, ensure the following data requirements are met:
 ## Citation and License
 Please cite the dataset as follows:  
 
-Lindersson, Sara & Messori, Gabriele (2024). SHEDIS-Temperature. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
+Lindersson, Sara & Messori, Gabriele (2024). _SHEDIS-Temperature_. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
 
 This dataset is licensed under the Creative Commons Attribution License, which permits re-distribution and re-use, provided that proper credit is given to the creators.
 
