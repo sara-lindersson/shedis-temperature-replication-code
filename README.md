@@ -29,7 +29,7 @@ Please cite the dataset as follows:
 
 Lindersson, Sara & Messori, Gabriele (2024). _SHEDIS-Temperature_. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
 
-This dataset is licensed under the Creative Commons Attribution License, which permits re-distribution and re-use, provided that proper credit is given to the creators.
+This dataset is licensed under the Creative Commons Attribution License CC BY-NC 4.0.
 
 ## Contact
 Sara Lindersson, sara.lindersson@geo.uu.se
