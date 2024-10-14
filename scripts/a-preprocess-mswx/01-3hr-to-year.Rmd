@@ -1,0 +1,54 @@
+---
+title: 'Concatenate 3-hourly files by year'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+This script processes 3-hourly data files using CDO (Climate Data Operators) to concatenate individual files into a single netCDF file for each year. The output consists of one netCDF file per year, containing 3-hourly time steps.
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(glue)
+library(knitr)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = F)
+```
+
+```{r setup, include=T}
+# Set working directory
+knitr::opts_knit$set(root.dir = normalizePath('F:/mswx/')) 
+```
+
+### Parameters
+```{r define-parameters}
+# Define the range of years
+years <- 1979:2023
+
+# File pathways
+ph_in <- 'temp/3hourly'
+ph_out <- 'data-processed/01'
+
+# Check if output-directory exists, otherwise create it
+if (!file.exists(ph_out)) {
+  dir.create(ph_out, recursive = T)
+}
+```
+
+### Loop over years and construct shell command
+```{r data-processing}
+for (year in years) {
+  # Define input and output paths
+  input_files <- glue('{ph_in}/{year}*.nc')
+  output_file <- glue('{ph_out}/temp_{year}.nc')
+  
+  # Construct the CDO command
+  # -O to overwrite output if existing, -z to compress output
+  cdo_command <- glue('cdo -O -z zip_1 -cat {input_files} {output_file}')
+  
+  # Execute the CDO command
+  system(cdo_command)
+}
+```
+End of script.
