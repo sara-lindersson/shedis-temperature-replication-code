@@ -14,7 +14,7 @@ A _master-script_ in the home folder orchestrates the execution of all scripts i
 
 ## Required Data
 To replicate the results, ensure the following data requirements are met: 
-+ __Processed data__ needed for running the scripts in the _c-derive-outputs_ folder can be downloaded from the Harvard Dataverse repository in the _data-processed_ folder. Place this data in the project’s home directory before executing the scripts.  
++ __Processed data__ needed for running the scripts in the _c-derive-outputs_ folder can be downloaded from the Harvard Dataverse repository in the _data-processed_ folder. Place this folder in the project’s home directory before executing the scripts.  
 + __Raw data__ for the _a-preprocess-mswx_ and _b-process-data_ folders must be downloaded from their respective sources. Save the raw data (EM-DAT, GDIS, GADM) in a folder named _data-raw_, located in the project's home directory. Additionally, data from MSWX and GHS-POP are currently referenced on an external disk in the scripts. Be sure to update the file paths accordingly when running the scripts on your system.
 
 ## Data sources
