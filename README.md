@@ -2,7 +2,8 @@
 This dataset links national disaster impact records with subnational information on physical hazards and human exposure. Version 1.0 includes data on 382 heat waves and cold waves from 1979 to 2018, based on records from the EM-DAT international disaster database.
 
 + Data descriptor article: [upcoming]  
-+ Harvard Dataverse: https://doi.org/10.7910/DVN/WNOTTC  
++ Harvard Dataverse for Dataset: https://doi.org/10.7910/DVN/WNOTTC
++ Harvard Dataverse for Replication data: [upcoming]  
 + GitHub Repository: https://github.com/sara-lindersson/shedis-temperature
 
 ## Dataset
@@ -24,7 +25,7 @@ A `master-script` in the root directory orchestrates the execution of these scri
 ### Required Data
 To replicate the results, you will need the following datasets:
 
-+ __Processed data__ needed for running the scripts in the `c-derive-outputs` folder can be downloaded from the Harvard Dataverse repository in the `replication-data` folder. Place the `data-processed` folder in the project’s root directory and unpack the .tar-files before running the scripts. 
++ __Processed data__ needed for running the scripts in the `c-derive-outputs` folder can be downloaded from the Harvard Dataverse repository containing the replication data. Place the replication data in a `data-processed` folder in the project’s root directory and unpack the .tar-files before running the scripts. 
 + __Raw data__ for running scripts in the `a-preprocess-mswx` and `b-process-data` should be downloaded from their respective sources. 
 
 ## Data sources
