@@ -1,0 +1,156 @@
+---
+title: 'Add average value'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+This script calculates the average values (timmean) for each grid cell from the original daily maximum (TX) and minimum (TN) temperature time series. It then adds these average values to the detrended TN and TX time series.
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(glue)
+library(knitr)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = F)
+```
+
+```{r setup, include=T}
+# Set working directory
+knitr::opts_knit$set(root.dir = normalizePath('F:/mswx/data-processed/')) 
+```
+
+### First set of parameters
+```{r parameters-1}
+# Directories TN
+ph_in_tn <- 'from-03/tn_tiles'
+ph_out_tn <- 'from-05/tn_tiles_mean'
+
+# Create output directory if it doesn't exist
+if (!dir.exists(ph_out_tn)) {
+  dir.create(ph_out_tn, recursive = TRUE)
+}
+
+# Directories TX
+ph_in_tx <- 'from-03/tx_tiles'
+ph_out_tx <- 'from-05/tx_tiles_mean'
+
+# Create output directory if it doesn't exist
+if (!dir.exists(ph_out_tx)) {
+  dir.create(ph_out_tx, recursive = TRUE)
+}
+```
+
+### Calculate temporal mean for TN
+```{r tn-mean, message=F, warning=F}
+# List all the .nc files in the input directory
+files <- list.files(ph_in_tn, pattern = "\\.nc$", full.names = TRUE)
+
+# Loop through each file and compute the average using CDO timmean
+for (file in files) {
+  # Get the file name
+  file_name <- basename(file)
+  
+  # Define the output file path
+  out_file <- file.path(ph_out_tn, paste0("avg_", file_name))
+
+  # Construct the CDO command to calculate the average (timmean)
+  cmd <- paste('wsl cdo -O -z zip_1 -b 32 -timmean', file, out_file)
+  
+  # Execute the CDO command
+  shell(cmd = cmd)
+}
+```
+
+### Calculate temporal mean for TX
+```{r tx-mean, message=F, warning=F}
+# List all the .nc files in the input directory
+files <- list.files(ph_in_tx, pattern = "\\.nc$", full.names = TRUE)
+
+# Loop through each file and compute the average using CDO timmean
+for (file in files) {
+  # Get the file name
+  file_name <- basename(file)
+  
+  # Define the output file path
+  out_file <- file.path(ph_out_tx, paste0("avg_", file_name))
+
+  # Construct the CDO command to calculate the average (timmean)
+  cmd <- paste('wsl cdo -O -z zip_1 -b 32 -timmean', file, out_file)
+  
+  # Execute the CDO command
+  shell(cmd = cmd)
+}
+```
+
+### Second set of parameters
+```{r parameters-2}
+
+# Directories TN
+ph_in_detr_tn <- 'from-04/tn_tiles_detr' # Tiles with detrended time series
+ph_in_avg_tn <- 'from-05/tn_tiles_mean' # Tiles with timmean
+ph_out_tn <- 'from-05/tn_tiles_detr_mean'
+
+# Create output directory if it doesn't exist
+if (!dir.exists(ph_out_tn)) {
+  dir.create(ph_out_tn, recursive = TRUE)
+}
+
+# Directories TX
+ph_in_detr_tx <- 'from-04/tx_tiles_detr' # Tiles with detrended time series
+ph_in_avg_tx <- 'from-05/tx_tiles_mean' # Tiles with timmean
+ph_out_tx <- 'from-05/tx_tiles_detr_mean'
+
+# Create output directory if it doesn't exist
+if (!dir.exists(ph_out_tx)) {
+  dir.create(ph_out_tx, recursive = TRUE)
+}
+```
+
+### Add average to detrended for TN
+```{r tn-add-mean, message=F, warning=F}
+# List all the .nc files in the input directory
+files <- list.files(ph_in_detr_tn, pattern = "\\.nc$", full.names = TRUE)
+
+# Loop through each file and compute the average using CDO timmean
+for (file in files) {
+  # Get the file name (without path)
+  file_name <- sub('^detr_', '', basename(file))
+  
+  avg_file <- file.path(ph_in_avg_tn, paste0('avg_', file_name))
+  
+  # Define the output file path
+  out_file <- file.path(ph_out_tn, paste0("detr_avg_", file_name))
+
+  # Construct the CDO command to add the average to detrended
+  cmd <- paste('wsl cdo -O -z zip_1 -b 32 -add', file, avg_file, out_file)
+  
+  # Execute the CDO command
+  shell(cmd = cmd)
+}
+```
+
+### Add average to detrended for TX
+```{r tx-add-mean, message=F, warning=F}
+# List all the .nc files in the input directory
+files <- list.files(ph_in_detr_tx, pattern = "\\.nc$", full.names = TRUE)
+
+# Loop through each file and compute the average using CDO timmean
+for (file in files) {
+  # Get the file name (without path)
+  file_name <- sub('^detr_', '', basename(file))
+  
+  avg_file <- file.path(ph_in_avg_tx, paste0('avg_', file_name))
+  
+  # Define the output file path
+  out_file <- file.path(ph_out_tx, paste0("detr_avg_", file_name))
+
+  # Construct the CDO command to add the average to detrended
+  cmd <- paste('wsl cdo -O -z zip_1 -b 32 -add', file, avg_file, out_file)
+  
+  # Execute the CDO command
+  shell(cmd = cmd)
+}
+```
+End of script.
