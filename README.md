@@ -1,7 +1,7 @@
 # Code for SHEDIS-Temperature
 This dataset links national disaster impact records with subnational information on physical hazards and human exposure. Version 1.0 includes data on 382 heat waves and cold waves from 1979 to 2018, based on records from the EM-DAT international disaster database.
 
-+ Data descriptor article: [upcoming]  
++ Data descriptor article: Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature: Linking temperature-related disaster impacts to subnational data on meteorology and human exposure._ Pre-print.
 + Harvard Dataverse for Dataset: https://doi.org/10.7910/DVN/WNOTTC
 + GitHub Repository: https://github.com/sara-lindersson/shedis-temperature-replication-code
 
@@ -37,7 +37,7 @@ To replicate the results, you will need the following datasets:
 Please cite the dataset as follows:  
 
 + Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature_. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
-+ Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature: Linking temperature-related disaster impacts to subnational data on meteorology and human exposure_. Data descriptor. Pre-print.
++ Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature: Linking temperature-related disaster impacts to subnational data on meteorology and human exposure_. Pre-print.
 
 This dataset is licensed under the Creative Commons Attribution License CC BY-NC 4.0.
 
