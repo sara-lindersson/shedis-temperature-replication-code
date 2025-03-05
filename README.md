@@ -3,8 +3,7 @@ This dataset links national disaster impact records with subnational information
 
 + Data descriptor article: [upcoming]  
 + Harvard Dataverse for Dataset: https://doi.org/10.7910/DVN/WNOTTC
-+ Repository for replication data: [upcoming]  
-+ GitHub Repository: https://github.com/sara-lindersson/shedis-temperature
++ GitHub Repository: https://github.com/sara-lindersson/shedis-temperature-replication-code
 
 ## Dataset
 The dataset is located in the [Harvard Dataverse repository](https://doi.org/10.7910/DVN/WNOTTC). The data descriptor article describes the content of the dataset files.
@@ -25,8 +24,7 @@ A `master-script` in the root directory orchestrates the execution of these scri
 ### Required Data
 To replicate the results, you will need the following datasets:
 
-+ __Processed data__ needed for running the scripts in the `c-derive-outputs` folder can be downloaded from the repository containing the replication data. Place the replication data in a `data-processed` folder in the project’s root directory and unpack the .tar-files before running the scripts. 
-+ __Raw data__ for running scripts in the `a-preprocess-mswx` and `b-process-data` should be downloaded from their respective sources. 
++ __Raw data__ for running scripts in the `a-preprocess-mswx` and `b-process-data` should be downloaded from their respective sources. These scripts create the __Processed data__ needed for running the scripts in the `c-derive-outputs` and `d-figures-data-descriptor` folders. If needed, users are welcome to contact Sara Lindersson to acquire the __processed data__ directly.
 
 ## Data sources
 + __EM-DAT__: CRED, UCLouvain, Brussels, Belgium. Downloaded 2023-10-02 from https://www.emdat.be/
@@ -38,7 +36,8 @@ To replicate the results, you will need the following datasets:
 ## Citation and License
 Please cite the dataset as follows:  
 
-+ Lindersson, Sara & Messori, Gabriele (2024). _SHEDIS-Temperature_. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
++ Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature_. https://doi.org/10.7910/DVN/WNOTTC, Harvard Dataverse, version 1.0.
++ Lindersson, Sara & Messori, Gabriele (2025). _SHEDIS-Temperature: Linking temperature-related disaster impacts to subnational data on meteorology and human exposure_. Data descriptor. Pre-print.
 
 This dataset is licensed under the Creative Commons Attribution License CC BY-NC 4.0.
 
