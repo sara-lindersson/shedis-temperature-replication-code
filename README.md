@@ -33,6 +33,7 @@ To replicate the results, you will need the following datasets:
 + __GDIS__: Rosvold, E. L. and Buhaug, H. (2021) ‘GDIS, a global dataset of geocoded disaster locations’, Scientific Data, 8(1), p. 61. https://doi.org/10.1038/s41597-021-00846-6
 + __GHS-POP__: Schiavina M., Freire S., Carioli A., MacManus K. (2023) GHS-POP R2023A - GHS population grid multitemporal (1975-2030). Resolution 30 arcsec. European Commission, Joint Research Centre (JRC). https://doi.org/10.2905/2FF68A52-5B5B-4A22-8F40-C41DA8332CFE
 + __MSWX__: Beck, H. E. et al. (2022) ‘MSWX: Global 3-Hourly 0.1° Bias-Corrected Meteorological Data Including Near-Real-Time Updates and Forecast Ensembles’, Bulletin of the American Meteorological Society. Boston MA, USA: American Meteorological Society, 103(3), pp. E710–E732. https://doi.org/10.1175/BAMS-D-21-0145.1
++ __E-OBS__: Cornes, R., van der Schrier, G., van den Besselaar, E.J.M., Jones, P., (2018): An Ensemble Version of the E-OBS Temperature and Precipitation Datasets, J. Geophys. Res. Atmos., 123. Data downloaded 2025-09-10 from https://surfobs.climate.copernicus.eu/dataaccess/access_eobs.php#datafiles
 
 ## Citation and License
 Please cite the dataset as follows:  
