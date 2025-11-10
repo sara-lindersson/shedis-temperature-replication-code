@@ -18,6 +18,7 @@ The scripts are divided into four main directories:
 + `b-process-data`: Scripts for linking disaster impact records from EM-DAT to subnational administrative units (GADM v3.6), using geocoding from GDIS. These scripts also integrate meteorological data (MSWX) with annual population estimates from GHS-POP.  
 + `c-derive-outputs`: Scripts for generating the final dataset, including identifying heat wave and cold wave events through threshold analysis and summarizing key attributes for each disaster record.
 + `d-figures-data-descriptor`: Scripts for generating the figures for the data descriptor article.
++ `e-validation`: Scripts for performing the sensitivity analysis (detrended vs non-detrended) and validation with E-OBS data.
 
 A `master-script` in the root directory orchestrates the execution of these scripts in the correct order. Each script provides further details about its functionality.
 
