@@ -1,0 +1,440 @@
+st---
+title: 'Threshold Analysis at grid point level'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+This script identifies periods of heat waves and cold waves at the grid point level through threshold analysis. The final output is one CSV-file per _disno_, containing identified events from the threshold analysis at the grid point-level at each _subdivision_.
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(here)
+library(tidyverse)
+library(sf)
+library(terra)
+library(exactextractr)
+library(stringr)
+library(glue)
+library(purrr)
+library(dplyr)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = T) # Change to TRUE if chunks should be run when document is knitted.
+```
+
+```{r setup, include=T}
+# Execute all notebook chunks in the grandparent folder of the notebook
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+### Parameters
+```{r define-parameters}
+# Define minimum duration [days]
+min_dur <- 3
+
+# Define how many buffer days to include
+extra_days <- 7
+
+# Define threshold type of interest
+t_type <- 'pct' # Options: 'pct' or 'fixed'
+
+# For percentiles, define their values
+# First entry for cold waves and second for heat waves
+pct_levels <- c(10, 90) # Options: c(5,95) or c(10,90)
+
+# For fixed thresholds, define their variables and levels
+# First entry for cold waves and second for heat waves
+fixed_variables <- c('at_min', 'at_max') 
+fixed_levels <- c(-30, 30)
+
+# File path in hazard and population data
+ph_in <- here('data-processed', 'daily-data')
+
+# Temporary file path
+ph_temp_1 <- here('data-processed','temporary','subdivision-files')
+ph_temp_2 <- here('data-processed','temporary','disno-files')
+
+# Check if the folder exists
+if (!dir.exists(ph_temp_1)) {
+  # Create the folder if it doesn't exist
+  dir.create(ph_temp_1, recursive = TRUE)
+} else {
+  # If the folder exists, empty it by removing all files
+  unlink(paste0(ph_temp_1, "/*"), recursive = TRUE)
+}
+
+# Check if the folder exists
+if (!dir.exists(ph_temp_2)) {
+  # Create the folder if it doesn't exist
+  dir.create(ph_temp_2, recursive = TRUE)
+} else {
+  # If the folder exists, empty it by removing all files
+  unlink(paste0(ph_temp_2, "/*"), recursive = TRUE)
+}
+
+# Final file paths outputs
+if (t_type == 'pct'){
+  ph_out_cw <- here('data-output', 'coldwaves', 'threshold-exceeding-events', 
+                    paste0('pct', pct_levels[1], '-min', min_dur, 'days'))
+  
+  ph_out_cw <- str_replace_all(ph_out_cw, "pct5", "pct05")
+  
+  ph_out_hw <- here('data-output', 'heatwaves', 'threshold-exceeding-events', 
+                    paste0('pct', pct_levels[2], '-min', min_dur, 'days'))
+}
+
+if (t_type == 'fixed'){
+  ph_out_cw <- here('data-output', 'coldwaves', 'threshold-exceeding-events',
+                    paste0('fixed-', gsub('_.*', '', fixed_variables[1]), '-', fixed_levels[1], '-min', min_dur, 'days')) 
+  
+  ph_out_hw <- here('data-output', 'heatwaves', 'threshold-exceeding-events',
+                    paste0('fixed-', gsub('_.*', '', fixed_variables[1]), '-', fixed_levels[2], '-min', min_dur, 'days'))
+}
+
+# Check if output-directories exist, otherwise create them
+if (!file.exists(ph_out_cw)) {dir.create(ph_out_cw, recursive = T)}
+if (!file.exists(ph_out_hw)) {dir.create(ph_out_hw, recursive = T)}
+
+```
+
+### Import sample of subdivisions for disaster records
+Loads `subnat.rds` from script `01-emdat-gdis-link.Rmd`. This dataframe holds the sample of EM-DAT entries at the subnational level, with one row per _disno_ and administrative _subdivision_, accompanied by simplified polygons.
+```{r load-subnat}
+subnat <- readRDS(here('data-processed', 'subnat.rds')) %>%
+  as.data.frame() %>%
+  mutate(
+    geometry = NULL,
+    analysis_start = start - extra_days,
+    analysis_end = end + extra_days
+  ) %>%
+  dplyr::select(disno, type, gadm_gid, gadm_name, gadm_level, analysis_start, analysis_end)
+```
+
+### Create a key tibble of parameters
+```{r tibble-parameters}
+param <- tibble(
+  thres_type = c('pct', 'pct', 'fixed', 'fixed'),
+  dis_type = c('Cold wave', 'Heat wave', 'Cold wave', 'Heat wave'),
+  min_dur = min_dur
+) %>%
+  mutate(
+    data_var = case_when(
+      thres_type == 'pct' & dis_type == 'Cold wave' ~ 'temp_min',
+      thres_type == 'pct' & dis_type == 'Heat wave' ~ 'temp_max',
+      thres_type == 'fixed' & dis_type == 'Cold wave' ~ fixed_variables[1],
+      thres_type == 'fixed' & dis_type == 'Heat wave' ~ fixed_variables[2],
+      T ~ NA_character_
+    ),
+    
+    thres_crit = case_when(
+      dis_type == 'Cold wave' ~ '<',
+      dis_type == 'Heat wave' ~ '>',
+      T ~ NA_character_
+    ),
+    
+    thres_var = case_when(
+      thres_type == 'pct' & dis_type == 'Cold wave' ~ 
+        glue('ctn{sprintf("%02d", pct_levels)[1]}_1980_2010'),
+      thres_type == 'pct' & dis_type == 'Heat wave' ~ 
+        glue('ctx{sprintf("%02d", pct_levels)[2]}_1980_2010'),
+      thres_type == 'fixed' & dis_type == 'Cold wave' ~ fixed_variables[1],
+      thres_type == 'fixed' & dis_type == 'Heat wave' ~ fixed_variables[2],
+      T ~ NA_character_
+    ),
+    
+    thres_lev = case_when(
+      thres_type == 'fixed' & dis_type == 'Cold wave' ~ fixed_levels[1],
+      thres_type == 'fixed' & dis_type == 'Heat wave' ~ fixed_levels[2]
+    )
+  )
+```
+
+### Threshold analysis
+```{r threshold-analysis, warning=F, message=F, results=F}
+
+# Define a function to process each file based on subnat record
+process_file <- function(disno, type, gadm_gid, gadm_name, gadm_level, analysis_start, analysis_end) {
+  
+  # i <- 1 # Uncomment these four lines for testing the loop
+  # disno <- subnat$disno[i]; type <- subnat$type[i]; gadm_gid <- subnat$gadm_gid[i]
+  # gadm_name <- subnat$gadm_name[i]; gadm_level <- subnat$gadm_level[i]
+  # analysis_start <- subnat$analysis_start[i]; analysis_end <- subnat$analysis_end[i]
+  
+  key <- param %>%
+    filter(thres_type == t_type & dis_type == type)
+  
+  result <- readRDS(file = glue('{ph_in}/{disno}_{gadm_gid}.rds')) %>%
+    group_by(x, y) %>%
+    mutate(grid_cell_id = cur_group_id()) %>%
+    ungroup() %>%
+    arrange(grid_cell_id, date) %>%
+    # Filter rows with missing values
+    filter(!is.na(get(key$thres_var))) %>%
+    filter(!is.na(get(key$data_var))) %>%
+    # Filter rows to include only dates within period of analysis
+    filter(date >= analysis_start & date <= analysis_end) %>%
+    # Let the population value be the value at analysis_start
+    group_by(grid_cell_id) %>%
+    mutate(pop = first(pop)) %>%
+    ungroup() %>%
+    # Identify extreme temp days
+    mutate(ext = case_when(
+      t_type == 'pct' &
+        eval(parse(text = glue('{key$data_var} {key$thres_crit} {key$thres_var}'))) ~ 1,
+      t_type == 'fixed' &
+        eval(parse(text = glue('{key$data_var} {key$thres_crit} {key$thres_lev}'))) ~ 1,
+      T ~ 0
+    )) %>%
+    # Reclassify single non-extreme days as extreme 
+    group_by(grid_cell_id) %>%
+    mutate(ext_recl = case_when(
+      ext == 0 & lag(ext) == 1 & lead(ext) == 1 ~ 1,
+      TRUE ~ ext
+    )) %>%
+    mutate(
+      sequence_id = cumsum(ext_recl != lag(ext_recl, default = 0)), # Create a sequence ID for consecutive 1s
+      sequence_id = if_else(ext_recl == 0, NA_integer_, sequence_id) # Set sequence ID to NA for 0s
+    ) %>%
+    group_by(grid_cell_id, sequence_id) %>%
+    mutate(duration = if_else(!is.na(sequence_id), n(), 0)) %>% # Count the length of each sequence of 1s
+    # Only consider sequences of at least the minimum duration
+    filter(duration >= key$min_dur) %>%
+    ungroup() %>%
+    # Quantify the severity of each sequence
+    mutate(magnitude = case_when(
+      t_type == 'pct' & ext == 1 ~ abs(eval(parse(text = glue('{key$data_var} - {key$thres_var}')))),
+      t_type == 'fixed' & ext == 1 ~ abs(eval(parse(text = glue('{key$data_var} - {key$thres_lev}')))),
+      T ~ 0
+    )) %>%
+    
+    # Summarize data to get one row per sequence_id
+    group_by(grid_cell_id, sequence_id) %>%
+    summarize(
+      
+      grid_cell_id = first(grid_cell_id),
+      x = first(x),
+      y = first(y),
+      cf = first(cf),
+      area_km2 = first(area_km2),
+      
+      pop = first(pop),
+      
+      event_start = min(date),
+      event_end = max(date),
+
+      mean_pct10_detrended = round(mean(pull(pick(matches('^ct.*0(?!_1980_2010$)', perl = TRUE)))), 2),
+      mean_pct05_detrended = round(mean(pull(pick(matches('^ct.*5(?!_1980_2010$)', perl = TRUE)))), 2),
+      
+      mean_pct10_1980_2010 = round(mean(pull(pick(matches('^ct.*0_1980_2010$')))), digits = 2),
+      mean_pct05_1980_2010 = round(mean(pull(pick(matches('^ct.*5_1980_2010$')))), digits = 2),
+      
+      duration = first(duration),
+      persondays = first(pop) * first(duration),
+      
+      magnitude = round(sum(magnitude), digits = 2),
+      
+      # Indicators of air temperature 
+      mean_t = round(mean(temp_mean), digits = 2), # Average temp
+      mean_tx = round(mean(temp_max), digits = 2), # Average daymax
+      mean_tn = round(mean(temp_min), digits = 2), # Average daymin
+      
+      max_tx = round(max(temp_max), digits = 2), # Max daymax and date
+      max_tx_date = date[which.max(temp_max)],
+      
+      min_tn = round(min(temp_min), digits = 2), # Min daymin and date
+      min_tn_date = date[which.min(temp_min)], 
+      
+      max_t = round(max(temp_mean), digits = 2), # Max daily average and date
+      max_t_date = date[which.max(temp_mean)], 
+      
+      min_t = round(min(temp_mean), digits = 2), # Min daily average and date
+      min_t_date = date[which.min(temp_mean)],
+      
+      # Indicators of apparent temperature 
+      mean_at = round(mean(at_mean), digits = 2),
+      mean_atx = round(mean(at_max), digits = 2),
+      mean_atn = round(mean(at_min), digits = 2),
+      
+      max_atx = round(max(at_max), digits = 2),
+      max_atx_date = date[which.max(at_max)],
+      
+      min_atn = round(min(at_min), digits = 2),
+      min_atn_date = date[which.min(at_min)],
+      
+      max_at = round(max(at_mean), digits = 2),
+      max_at_date = date[which.max(at_mean)], 
+      
+      min_at = round(min(at_mean), digits = 2),
+      min_at_date = date[which.min(at_mean)]
+    ) %>%
+    ungroup() %>%
+    select(-sequence_id, -grid_cell_id) %>%
+    arrange(x, y, event_start) %>%
+    mutate(
+      disno = disno,
+      subtype = type,
+      gadm_gid = gadm_gid,
+      gadm_level = gadm_level,
+      gadm_name = gadm_name,
+      analysis_start = analysis_start,
+      analysis_end = analysis_end
+    ) %>%
+    relocate(
+      disno,
+      subtype,
+      gadm_gid,
+      gadm_level,
+      gadm_name,
+      analysis_start = analysis_start,
+      analysis_end = analysis_end
+    )
+  
+  # Export the result to an RDS file only if the result dataframe is not empty
+  if (nrow(result) > 0) {
+    saveRDS(result, file = glue('{ph_temp_1}/{disno}_{gadm_gid}.rds'))
+  }
+}
+
+# Iterate function over rows in subnat, producing one .rds-file per subdivision (if threshold-surpasssing events were identified)
+subnat %>%
+  pmap(function(disno, type, gadm_gid, gadm_name, gadm_level, analysis_start, analysis_end) {
+    process_file(disno, type, gadm_gid, gadm_name, gadm_level, analysis_start, analysis_end)
+  })
+```
+
+The script now gathers the results from the threshold analysis at grid-point level to one CSV-file per `disno`.
+
+```{r gather-per-disno}
+# List all .rds files in the directory
+rds_files <- list.files(ph_temp_1, pattern = '\\.rds$', full.names = TRUE)
+
+# Extract disno from each filename
+extract_disno <- function(filename) {
+  # This assumes the disaster number is always the first part of the filename
+  basename(filename) %>% 
+    sub('_.*', '', .)  # Remove everything after the first underscore
+}
+
+# Group files by disaster number
+files_by_disno <- rds_files %>%
+  tibble::tibble(file = ., disno = map_chr(., extract_disno)) %>%
+  group_split(disno)
+
+# Function to read, combine, and save files for each disaster number
+process_files <- function(group) {
+  disno <- unique(group$disno)  # Get the disaster number
+  combined_data <- group$file %>%
+    map_dfr(readRDS)  # Row-bind all files
+  
+  # Save the combined data as a new .csv file
+  write.csv(combined_data, file = file.path(ph_temp_2, paste0(disno, '.csv')), row.names = F)
+}
+
+# Apply the process_files function to each group
+walk(files_by_disno, process_files)
+
+# Remove files in first temporary folder
+unlink(ph_temp_1, recursive = TRUE)
+```
+
+Conduct some final editing of files depending on heatwave or coldwave, and place files in final output folders.
+```{r final-edits}
+files <- list.files(path = ph_temp_2, pattern = "\\.csv$", full.names = TRUE)
+
+for (i in 1:length(files)){
+  
+  file_i <- read.csv(file = files[i])
+  type_i <- file_i$subtype[1]
+  disno_i <- file_i$disno[1]
+  
+  if(type_i == "Heat wave"){
+    file_i <- file_i %>%
+      rename(mean_pct90_1980_2010 = mean_pct10_1980_2010,
+             mean_pct95_1980_2010 = mean_pct05_1980_2010,
+             mean_pct90_detrended = mean_pct10_detrended,
+             mean_pct95_detrended = mean_pct05_detrended
+      ) %>%
+      select(
+        disno,
+        subtype,
+        gadm_gid,
+        gadm_level,
+        gadm_name,
+        analysis_start,
+        analysis_end,
+        x,
+        y,
+        cf,
+        area_km2,
+        pop,
+        event_start,
+        event_end,
+        mean_pct90_detrended,
+        mean_pct95_detrended,
+        mean_pct90_1980_2010,
+        mean_pct95_1980_2010,
+        duration,
+        persondays,
+        magnitude,
+        mean_t,
+        mean_at,
+        mean_tx,
+        mean_atx,
+        max_t, max_t_date,
+        max_at, max_at_date,
+        max_tx, max_tx_date,
+        max_atx, max_atx_date
+      )
+    
+    if(pct_levels[2]==90){file_i <- file_i %>% select(-mean_pct95_detrended, -mean_pct95_1980_2010)}
+    if(pct_levels[2]==95){file_i <- file_i %>% select(-mean_pct90_detrended, -mean_pct90_1980_2010)}
+    
+    write.csv(file_i, file = file.path(ph_out_hw, paste0(disno_i, '.csv')), row.names = F)
+  }
+  
+  if(type_i == "Cold wave"){
+    file_i <- file_i %>%
+      select(
+        disno,
+        subtype,
+        gadm_gid,
+        gadm_level,
+        gadm_name,
+        analysis_start,
+        analysis_end,
+        x,
+        y,
+        cf,
+        area_km2,
+        pop,
+        event_start,
+        event_end,
+        mean_pct10_detrended,
+        mean_pct05_detrended,
+        mean_pct10_1980_2010,
+        mean_pct05_1980_2010,
+        duration,
+        persondays,
+        magnitude,
+        mean_t,
+        mean_at,
+        mean_tn,
+        mean_atn,
+        min_t, min_t_date,
+        min_at, min_at_date,
+        min_tn, min_tn_date,
+        min_atn, min_atn_date
+      )
+    
+    if(pct_levels[1]==10){file_i <- file_i %>% select(-mean_pct05_detrended, -mean_pct05_1980_2010)}
+    if(pct_levels[1]==5){file_i <- file_i %>% select(-mean_pct10_detrended, -mean_pct10_1980_2010)}
+    
+    write.csv(file_i, file = file.path(ph_out_cw, paste0(disno_i, '.csv')), row.names = F)
+  }
+}
+
+# Remove files in second temporary folder
+unlink(ph_temp_2, recursive = TRUE)
+```
+End of script.

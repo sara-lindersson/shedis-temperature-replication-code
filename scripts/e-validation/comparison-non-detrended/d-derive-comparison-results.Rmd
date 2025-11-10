@@ -1,0 +1,732 @@
+---
+title: 'Comparison of results from detrended vs non-detrended data'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(here)
+library(tidyverse)
+library(sf)
+library(exactextractr)
+library(stringr)
+library(glue)
+library(purrr)
+library(countrycode)
+library(dplyr)
+library(tidyquant)
+library(ggpubr)
+library(bbplot)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = TRUE) # TRUE if chunks should be executed when knitting the document.
+```
+
+```{r setup, include=T}
+# Execute all notebook chunks in the grand-grand-parent folder of the notebook
+knitr::opts_knit$set(root.dir = normalizePath("..."))
+```
+
+### Import data
+```{r}
+ph_dtr <- here("data-output")
+ph_ndtr <- here("validation", "comparison-non-detrended", "data-output")
+
+df_hw_dtr <- read.csv(file = paste0(ph_dtr, "/heatwaves/shedis_heatwaves_subdivision.csv"), sep = ",")
+df_cw_dtr <- read.csv(file = paste0(ph_dtr, "/coldwaves/shedis_coldwaves_subdivision.csv"), sep = ",")
+
+df_hw_ndtr <- read.csv(file = paste0(ph_ndtr, "/heatwaves/shedis_heatwaves_subdivision.csv"), sep = ",")
+df_cw_ndtr <- read.csv(file = paste0(ph_ndtr, "/coldwaves/shedis_coldwaves_subdivision.csv"), sep = ",")
+```
+
+### For how many more/less disno's do we detect threshold-exceeding events?
+```{r, eval=FALSE}
+# Heatwave scenarios
+scenario1 <- "pct90-min3days"; scenario2 <- "pct95-min3days"
+# Cold wave scenarios
+scenario3 <- "pct10-min3days"; scenario4 <- "pct05-min3days"
+
+# Define folders detr
+folders_dtr <- c(
+  paste0(ph_dtr, "/heatwaves/threshold-exceeding-events/", scenario1),
+  paste0(ph_dtr, "/heatwaves/threshold-exceeding-events/", scenario2),
+  paste0(ph_dtr, "/coldwaves/threshold-exceeding-events/", scenario3),
+  paste0(ph_dtr, "/coldwaves/threshold-exceeding-events/", scenario4)
+)
+
+# Define folders non-detr
+folders_ndtr <- c(
+  paste0(ph_ndtr, "/heatwaves/threshold-exceeding-events/", scenario1),
+  paste0(ph_ndtr, "/heatwaves/threshold-exceeding-events/", scenario2),
+  paste0(ph_ndtr, "/coldwaves/threshold-exceeding-events/", scenario3),
+  paste0(ph_ndtr, "/coldwaves/threshold-exceeding-events/", scenario4)
+)
+
+# Create tibbles with file counts
+summary_dtr <- tibble(folder = folders_dtr) %>%
+  mutate(n_files = map_int(folder, ~ length(list.files(.x, recursive = FALSE)))) %>% 
+  mutate(folder = sub(".*/", "", folder)) %>% 
+  mutate(pctlevel = sub("-.*", "", folder)) %>% 
+  select(-folder) %>% 
+  rename(detrended = n_files)
+
+summary_ndtr <- tibble(folder = folders_ndtr) %>%
+  mutate(n_files = map_int(folder, ~ length(list.files(.x, recursive = FALSE)))) %>% 
+  mutate(folder = sub(".*/", "", folder)) %>% 
+  mutate(pctlevel = sub("-.*", "", folder)) %>% 
+  select(-folder) %>% 
+  rename(non_detrended = n_files)
+
+summary <- summary_dtr %>% 
+  right_join(summary_ndtr, by = "pctlevel") %>% 
+  select(pctlevel, everything())
+
+# Export results
+write.csv(summary, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/disnos_with_pct_exceeding_events.csv"), row.names = F)
+
+rm(summary_dtr, summary_ndtr, folders_dtr, folders_ndtr)
+
+```
+
+### For how many more/less subdivisions experienced do we detect threshold-exceeding events?
+```{r}
+
+# Rename relevant columns for the non-detrended results
+df_cw_ndtr <- df_cw_ndtr %>% 
+  select(
+    disno,
+    subtype,
+    gadm_gid,
+    
+    mean_ctn10_1980_2010,
+    mean_ctn05_1980_2010,      
+    mean_ctn10_detr,
+    mean_ctn05_detr,
+    
+    pct10_area_percentage,
+    pct10_pop,
+    pct10_persondays,
+    pct10_median_duration,
+    pct10_days,
+    
+    pct05_area_percentage,
+    pct05_pop,
+    pct05_persondays,
+    pct05_median_duration,
+    pct05_days
+  ) %>% 
+  rename_with(~ str_c(.x, "_ndtr"), starts_with("pct")) %>% 
+  
+  rename(
+    mean_ctn10_ndtr = mean_ctn10_1980_2010,
+    mean_ctn05_ndtr = mean_ctn05_1980_2010,
+    mean_ctn10_dtr = mean_ctn10_detr,
+    mean_ctn05_dtr = mean_ctn05_detr
+  ) %>% 
+  
+  mutate(across(starts_with("mean"), ~ round(.x, 2))) %>% 
+  
+  mutate(
+    threshold_diff_10 = mean_ctn10_ndtr - mean_ctn10_dtr,
+    threshold_diff_05 = mean_ctn05_ndtr - mean_ctn05_dtr
+  )
+
+df_hw_ndtr <- df_hw_ndtr %>% 
+  select(
+    disno,
+    subtype,
+    gadm_gid,
+    
+    mean_ctx90_1980_2010,
+    mean_ctx95_1980_2010, 
+    mean_ctx90_detr,
+    mean_ctx95_detr,
+    
+    pct90_area_percentage,
+    pct90_pop,
+    pct90_persondays,
+    pct90_median_duration,
+    pct90_days,
+    
+    pct95_area_percentage,
+    pct95_pop,
+    pct95_persondays,
+    pct95_median_duration,
+    pct95_days
+  ) %>% 
+  rename_with(~ str_c(.x, "_ndtr"), starts_with("pct")) %>% 
+  
+  rename(mean_ctx90_ndtr = mean_ctx90_1980_2010,
+         mean_ctx95_ndtr = mean_ctx95_1980_2010,
+         mean_ctx90_dtr = mean_ctx90_detr,
+         mean_ctx95_dtr = mean_ctx95_detr) %>% 
+  
+  mutate(across(starts_with("mean"), ~ round(.x, 2))) %>% 
+  
+  mutate(
+    threshold_diff_90 = mean_ctx90_ndtr - mean_ctx90_dtr,
+    threshold_diff_95 = mean_ctx95_ndtr - mean_ctx95_dtr
+  )
+
+# Join results between detrended and non-detrended
+df_cw <- df_cw_dtr %>% 
+  select(
+    country,
+    analysis_start,
+    disno,
+    subtype,
+    gadm_gid,
+    geometry_area_km2,
+    geometry_pop,
+    
+    pct10_area_percentage,
+    pct10_pop,
+    pct10_persondays,
+    pct10_median_duration,
+    pct10_days,
+    
+    pct05_area_percentage,
+    pct05_pop,
+    pct05_persondays,
+    pct05_median_duration,
+    pct05_days
+  ) %>% 
+  left_join(df_cw_ndtr, by = c("disno", "gadm_gid", "subtype")) %>% 
+  mutate(flag_10 = (is.na(pct10_days) & !is.na(pct10_days_ndtr)) |
+           (!is.na(pct10_days) & is.na(pct10_days_ndtr))) %>% 
+  mutate(flag_05 = (is.na(pct05_days) & !is.na(pct05_days_ndtr)) |
+           (!is.na(pct05_days) & is.na(pct05_days_ndtr))) %>% 
+  mutate(start_year = year(analysis_start))
+
+df_hw <- df_hw_dtr %>% 
+  select(
+    country,
+    analysis_start,
+    disno,
+    subtype,
+    gadm_gid,
+    geometry_area_km2,
+    geometry_pop,
+    
+    pct90_area_percentage,
+    pct90_pop,
+    pct90_persondays,
+    pct90_median_duration,
+    pct90_days,
+    
+    pct95_area_percentage,
+    pct95_pop,
+    pct95_persondays,
+    pct95_median_duration,
+    pct95_days
+  ) %>% 
+  left_join(df_hw_ndtr, by = c("disno", "gadm_gid", "subtype")) %>% 
+  mutate(flag_90 = (is.na(pct90_days) & !is.na(pct90_days_ndtr)) |
+           (!is.na(pct90_days) & is.na(pct90_days_ndtr))) %>% 
+  mutate(flag_95 = (is.na(pct95_days) & !is.na(pct95_days_ndtr)) |
+           (!is.na(pct95_days) & is.na(pct95_days_ndtr))) %>% 
+  mutate(start_year = year(analysis_start))
+
+df_cw_stats <- df_cw %>% 
+  summarise(
+    n_total = n(),
+    n_not_pct10_dtr = sum(is.na(pct10_days)),
+    n_not_pct10_ndtr = sum(is.na(pct10_days_ndtr)),
+    n_not_pct05_dtr = sum(is.na(pct05_days)),
+    n_not_pct05_ndtr = sum(is.na(pct05_days_ndtr)),
+    n_flag_10 = sum(flag_10),
+    n_flag_05 = sum(flag_05)
+  )
+
+df_hw_stats <- df_hw %>% 
+  summarise(
+    n_total = n(),
+    n_not_pct90_dtr = sum(is.na(pct90_days)),
+    n_not_pct90_ndtr = sum(is.na(pct90_days_ndtr)),
+    n_not_pct95_dtr = sum(is.na(pct95_days)),
+    n_not_pct95_ndtr = sum(is.na(pct95_days_ndtr)),
+    n_flag_90 = sum(flag_90),
+    n_flag_95 = sum(flag_95)
+  )
+
+# Export stats
+write.csv(df_cw_stats, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/coldwave_threshold_agreement_subdiv.csv"), row.names = F)
+write.csv(df_hw_stats, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/heatwave_threshold_agreement_subdiv.csv"), row.names = F)
+
+# Export flagged 
+df_cw_flagged <- df_cw %>% 
+  filter((flag_10 | flag_05))
+write.csv(df_cw_flagged, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/coldwave_threshold_disagreements.csv"), row.names = F)
+
+df_hw_flagged <- df_hw %>% 
+  filter((flag_90 | flag_95))
+write.csv(df_cw_flagged, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/heatwave_threshold_disagreements.csv"), row.names = F)
+
+rm(df_cw_dtr, df_cw_ndtr, df_hw_dtr, df_hw_ndtr, df_cw_flagged, df_hw_flagged, df_hw_stats, df_cw_stats)
+```
+### Extract some summary statistics for differences (detrended vs non-detrended)
+```{r}
+# Heat waves
+# Full sample
+hw_full_stats <- df_hw %>% 
+  summarise(
+    mean_diff_90 = mean(threshold_diff_90, na.rm = TRUE),
+    mean_abs_diff_90 = mean(abs(threshold_diff_90), na.rm = TRUE),
+    sd_diff_90 = sd(threshold_diff_90, na.rm = TRUE),
+    min_diff_90 = min(threshold_diff_90, na.rm = TRUE),
+    max_diff_90 = max(threshold_diff_90, na.rm = TRUE),
+    
+    mean_diff_95 = mean(threshold_diff_95, na.rm = TRUE),
+    mean_abs_diff_95 = mean(abs(threshold_diff_95), na.rm = TRUE),
+    sd_diff_95 = sd(threshold_diff_95, na.rm = TRUE),
+    min_diff_95 = min(threshold_diff_95, na.rm = TRUE),
+    max_diff_95 = max(threshold_diff_95, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_full_sample"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+
+# First period (1979-1998)
+hw_p1_stats <- df_hw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year < 1999) %>% 
+    summarise(
+    mean_diff_90 = mean(threshold_diff_90, na.rm = TRUE),
+    mean_abs_diff_90 = mean(abs(threshold_diff_90), na.rm = TRUE),
+    sd_diff_90 = sd(threshold_diff_90, na.rm = TRUE),
+    min_diff_90 = min(threshold_diff_90, na.rm = TRUE),
+    max_diff_90 = max(threshold_diff_90, na.rm = TRUE),
+    
+    mean_diff_95 = mean(threshold_diff_95, na.rm = TRUE),
+    mean_abs_diff_95 = mean(abs(threshold_diff_95), na.rm = TRUE),
+    sd_diff_95 = sd(threshold_diff_95, na.rm = TRUE),
+    min_diff_95 = min(threshold_diff_95, na.rm = TRUE),
+    max_diff_95 = max(threshold_diff_95, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_1979-1998"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+  
+# Second period (1999-2018)
+hw_p2_stats <- df_hw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year > 1998) %>% 
+    summarise(
+    mean_diff_90 = mean(threshold_diff_90, na.rm = TRUE),
+    mean_abs_diff_90 = mean(abs(threshold_diff_90), na.rm = TRUE),
+    sd_diff_90 = sd(threshold_diff_90, na.rm = TRUE),
+    min_diff_90 = min(threshold_diff_90, na.rm = TRUE),
+    max_diff_90 = max(threshold_diff_90, na.rm = TRUE),
+    
+    mean_diff_95 = mean(threshold_diff_95, na.rm = TRUE),
+    mean_abs_diff_95 = mean(abs(threshold_diff_95), na.rm = TRUE),
+    sd_diff_95 = sd(threshold_diff_95, na.rm = TRUE),
+    min_diff_95 = min(threshold_diff_95, na.rm = TRUE),
+    max_diff_95 = max(threshold_diff_95, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_1999-2018"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+
+# Combine into one dataframe
+hw_stats <- hw_full_stats %>% 
+  right_join(hw_p1_stats, by = "statistic") %>% 
+  right_join(hw_p2_stats, by = "statistic") %>% 
+  select(sort(names(.))) %>% 
+  select(statistic, everything())
+
+# Cold waves
+# Full sample
+cw_full_stats <- df_cw %>% 
+  summarise(
+    mean_diff_10 = mean(threshold_diff_10, na.rm = TRUE),
+    mean_abs_diff_10 = mean(abs(threshold_diff_10), na.rm = TRUE),
+    sd_diff_10 = sd(threshold_diff_10, na.rm = TRUE),
+    min_diff_10 = min(threshold_diff_10, na.rm = TRUE),
+    max_diff_10 = max(threshold_diff_10, na.rm = TRUE),
+    
+    mean_diff_05 = mean(threshold_diff_05, na.rm = TRUE),
+    mean_abs_diff_05 = mean(abs(threshold_diff_05), na.rm = TRUE),
+    sd_diff_05 = sd(threshold_diff_05, na.rm = TRUE),
+    min_diff_05 = min(threshold_diff_05, na.rm = TRUE),
+    max_diff_05 = max(threshold_diff_05, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_full_sample"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+
+# First period (1979-1998)
+cw_p1_stats <- df_cw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year < 1999) %>% 
+    summarise(
+    mean_diff_10 = mean(threshold_diff_10, na.rm = TRUE),
+    mean_abs_diff_10 = mean(abs(threshold_diff_10), na.rm = TRUE),
+    sd_diff_10 = sd(threshold_diff_10, na.rm = TRUE),
+    min_diff_10 = min(threshold_diff_10, na.rm = TRUE),
+    max_diff_10 = max(threshold_diff_10, na.rm = TRUE),
+    
+    mean_diff_05 = mean(threshold_diff_05, na.rm = TRUE),
+    mean_abs_diff_05 = mean(abs(threshold_diff_05), na.rm = TRUE),
+    sd_diff_05 = sd(threshold_diff_05, na.rm = TRUE),
+    min_diff_05 = min(threshold_diff_05, na.rm = TRUE),
+    max_diff_05 = max(threshold_diff_05, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_1979-1998"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+  
+# Second period (1999-2018)
+cw_p2_stats <- df_cw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year > 1998) %>% 
+    summarise(
+    mean_diff_10 = mean(threshold_diff_10, na.rm = TRUE),
+    mean_abs_diff_10 = mean(abs(threshold_diff_10), na.rm = TRUE),
+    sd_diff_10 = sd(threshold_diff_10, na.rm = TRUE),
+    min_diff_10 = min(threshold_diff_10, na.rm = TRUE),
+    max_diff_10 = max(threshold_diff_10, na.rm = TRUE),
+    
+    mean_diff_05 = mean(threshold_diff_05, na.rm = TRUE),
+    mean_abs_diff_05 = mean(abs(threshold_diff_05), na.rm = TRUE),
+    sd_diff_05 = sd(threshold_diff_05, na.rm = TRUE),
+    min_diff_05 = min(threshold_diff_05, na.rm = TRUE),
+    max_diff_05 = max(threshold_diff_05, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("statistic", "percentile"),
+    names_sep = "_(?=[0-9]+)",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = percentile,
+    values_from = value,
+    names_glue = "pct{percentile}_1999-2018"
+  ) %>%
+  mutate(across(starts_with("pct"), ~ round(.x, 3)))
+
+# Combine into one dataframe
+cw_stats <- cw_full_stats %>% 
+  right_join(cw_p1_stats, by = "statistic") %>% 
+  right_join(cw_p2_stats, by = "statistic") %>% 
+  select(sort(names(.))) %>% 
+  select(statistic, everything())
+
+# Export stats
+write.csv(hw_stats, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/heatwave_difference_summary_stats.csv"), row.names = F)
+write.csv(cw_stats, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/coldwave_difference_summary_stats.csv"), row.names = F)
+
+# The sample sizes of the periods
+cw_p1_n <- df_cw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year < 1999)
+
+cw_p2_n <- df_cw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year > 1998)
+
+hw_p1_n <- df_hw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year < 1999)
+
+hw_p2_n <- df_hw %>% 
+  mutate(year = as.numeric(substr(disno, 1, 4))) %>% 
+  filter(year > 1998) 
+
+rm(cw_full_stats, cw_p1_n, cw_p1_stats, cw_p2_n, cw_p2_stats, cw_stats)
+rm(hw_full_stats, hw_p1_n, hw_p1_stats, hw_p2_n, hw_p2_stats, hw_stats)
+```
+
+### Do the differences in thresholds (detrended vs non-detrended) vary across temperatures?
+```{r}
+set.seed(123)
+
+alpha <- 0.2
+size <- 3
+jitter_height <- 0.005
+
+p1 <- ggplot(df_cw, aes(x = mean_ctn10_ndtr, y = threshold_diff_10)) +
+  geom_point(alpha = alpha, size = size, position = position_jitter(width = 0, height = jitter_height), color = "skyblue", shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "gray", alpha = .3, linewidth = 1) +
+  theme_tq() +
+  scale_x_continuous(breaks = seq(-50, 30, by = 10), limits = c(-50, 30)) +  
+  scale_y_continuous(breaks = seq(-.4, .4, by = 0.2), limits = c(-.43, .43)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = "Difference (°C)", x = '10th percentile of non-detrended TN', title = "10th percentile of TN")
+
+p2 <- ggplot(df_cw, aes(x = mean_ctn05_ndtr, y = threshold_diff_05)) +
+  geom_point(alpha = alpha, size = size, position = position_jitter(width = 0, height = jitter_height), color = "skyblue", shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "gray", alpha = .3, linewidth = 1) +
+  theme_tq() +
+  scale_x_continuous(breaks = seq(-50, 30, by = 10), limits = c(-50, 30)) + 
+  scale_y_continuous(breaks = seq(-.4, .4, by = 0.2), limits = c(-.43, .43)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = "Difference (°C)", x = "5th percentile of non-detrended TN", title = "5th percentile of TN")
+
+p3 <- ggplot(df_hw, aes(x = mean_ctx90_ndtr, y = threshold_diff_90)) +
+  geom_point(alpha = alpha, size = size, position = position_jitter(width = 0, height = jitter_height), color = "tomato", shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "gray", alpha = .3, linewidth = 1) +
+  theme_tq() +
+  scale_x_continuous(breaks = seq(10, 50, by = 10), limits = c(10, 50)) +
+  scale_y_continuous(breaks = seq(-.4, .4, by = 0.2), limits = c(-.43, .43)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = "Difference (°C)", x = "90th percentile of non-detrended TX", title = "90th percentile of TX")
+
+p4 <- ggplot(df_hw, aes(x = mean_ctx95_ndtr, y = threshold_diff_95)) +
+  geom_point(alpha = alpha, size = size, position = position_jitter(width = 0, height = jitter_height), color = "tomato", shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "gray", alpha = .3, linewidth = 1) +
+  theme_tq() +
+  scale_x_continuous(breaks = seq(10, 50, by = 10), limits = c(10, 50)) +
+  scale_y_continuous(breaks = seq(-.4, .4, by = 0.2), limits = c(-.43, .43)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = "Difference (°C)", x = "95th percentile of non-detrended TX", title = "95th percentile of TX")
+
+fig <- ggarrange(p1, p2, p3, p4,
+                 ncol = 2, nrow =2)
+
+# Export
+finalise_plot(plot_name = fig,
+              save_filepath = here("validation","comparison-non-detrended", "results-figures", "pct_differences_vs_temp.pdf"),
+              source_name = "Jitter height 0.005",
+              width_pixels = 800, height_pixels = 500)
+
+rm(p1, p2, p3, p4, fig, alpha, jitter_height, size)
+```
+
+### Do key statistics change in the output of threshold exceeding events with detrended vs non-detrended?
+```{r}
+
+# Coldwaves
+df_cw <- df_cw %>% 
+  mutate(
+    pct10_area_km2 = pct10_area_percentage * geometry_area_km2,
+    pct10_area_km2_ndtr = pct10_area_percentage_ndtr * geometry_area_km2,
+    pct05_area_km2 = pct05_area_percentage * geometry_area_km2,
+    pct05_area_km2_ndtr = pct05_area_percentage_ndtr * geometry_area_km2,
+  ) %>% 
+  select(-pct10_area_percentage, -pct10_area_percentage_ndtr, -pct05_area_percentage, -pct05_area_percentage_ndtr)
+
+stats_cw <- df_cw %>% 
+  summarise(
+    sum_pct10_pop = sum(pct10_pop, na.rm = T),
+    sum_pct10_pop_ndtr = sum(pct10_pop_ndtr, na.rm = T),
+    
+    mean_pct10_pop = mean(pct10_pop, na.rm = T),
+    mean_pct10_pop_ndtr = mean(pct10_pop_ndtr, na.rm = T),
+    
+    sum_pct10_persondays = sum(pct10_persondays, na.rm = T),
+    sum_pct10_persondays_ndtr = sum(pct10_persondays_ndtr, na.rm = T),
+    
+    mean_pct10_persondays = mean(pct10_persondays, na.rm = T),
+    mean_pct10_persondays_ndtr = mean(pct10_persondays_ndtr, na.rm = T),
+    
+    sum_pct10_days = sum(pct10_days, na.rm = T),
+    sum_pct10_days_ndtr = sum(pct10_days_ndtr, na.rm = T),
+    
+    mean_pct10_days = mean(pct10_days, na.rm = T),
+    mean_pct10_days_ndtr = mean(pct10_days_ndtr, na.rm = T),
+    
+    mean_pct10_median_duration = mean(pct10_median_duration, na.rm = T),
+    mean_pct10_median_duration_ndtr = mean(pct10_median_duration_ndtr, na.rm = T),
+    
+    median_pct10_median_duration = median(pct10_median_duration, na.rm = T),
+    median_pct10_median_duration_ndtr = median(pct10_median_duration_ndtr, na.rm = T),
+    
+    sum_pct05_pop = sum(pct05_pop, na.rm = T),
+    sum_pct05_pop_ndtr = sum(pct05_pop_ndtr, na.rm = T),
+    
+    mean_pct05_pop = mean(pct05_pop, na.rm = T),
+    mean_pct05_pop_ndtr = mean(pct05_pop_ndtr, na.rm = T),
+    
+    sum_pct05_persondays = sum(pct05_persondays, na.rm = T),
+    sum_pct05_persondays_ndtr = sum(pct05_persondays_ndtr, na.rm = T),
+    
+    mean_pct05_persondays = mean(pct05_persondays, na.rm = T),
+    mean_pct05_persondays_ndtr = mean(pct05_persondays_ndtr, na.rm = T),
+    
+    sum_pct05_days = sum(pct05_days, na.rm = T),
+    sum_pct05_days_ndtr = sum(pct05_days_ndtr, na.rm = T),
+    
+    mean_pct05_days = mean(pct05_days, na.rm = T),
+    mean_pct05_days_ndtr = mean(pct05_days_ndtr, na.rm = T),
+    
+    mean_pct05_median_duration = mean(pct05_median_duration, na.rm = T),
+    mean_pct05_median_duration_ndtr = mean(pct05_median_duration_ndtr, na.rm = T),
+    
+    median_pct05_median_duration = median(pct05_median_duration, na.rm = T),
+    median_pct05_median_duration_ndtr = median(pct05_median_duration_ndtr, na.rm = T)
+  )
+
+# Heatwaves
+df_hw <- df_hw %>% 
+  mutate(
+    pct90_area_km2 = pct90_area_percentage * geometry_area_km2,
+    pct90_area_km2_ndtr = pct90_area_percentage_ndtr * geometry_area_km2,
+    pct95_area_km2 = pct95_area_percentage * geometry_area_km2,
+    pct95_area_km2_ndtr = pct95_area_percentage_ndtr * geometry_area_km2,
+  ) %>% 
+  select(-pct90_area_percentage, -pct90_area_percentage_ndtr, -pct95_area_percentage, -pct95_area_percentage_ndtr)
+
+stats_hw <- df_hw %>% 
+  summarise(
+    sum_pct90_pop = sum(pct90_pop, na.rm = T),
+    sum_pct90_pop_ndtr = sum(pct90_pop_ndtr, na.rm = T),
+    
+    mean_pct90_pop = mean(pct90_pop, na.rm = T),
+    mean_pct90_pop_ndtr = mean(pct90_pop_ndtr, na.rm = T),
+    
+    sum_pct90_persondays = sum(pct90_persondays, na.rm = T),
+    sum_pct90_persondays_ndtr = sum(pct90_persondays_ndtr, na.rm = T),
+    
+    mean_pct90_persondays = mean(pct90_persondays, na.rm = T),
+    mean_pct90_persondays_ndtr = mean(pct90_persondays_ndtr, na.rm = T),
+    
+    sum_pct90_days = sum(pct90_days, na.rm = T),
+    sum_pct90_days_ndtr = sum(pct90_days_ndtr, na.rm = T),
+    
+    mean_pct90_days = mean(pct90_days, na.rm = T),
+    mean_pct90_days_ndtr = mean(pct90_days_ndtr, na.rm = T),
+    
+    mean_pct90_median_duration = mean(pct90_median_duration, na.rm = T),
+    mean_pct90_median_duration_ndtr = mean(pct90_median_duration_ndtr, na.rm = T),
+    
+    median_pct90_median_duration = median(pct90_median_duration, na.rm = T),
+    median_pct90_median_duration_ndtr = median(pct90_median_duration_ndtr, na.rm = T),
+    
+    sum_pct95_pop = sum(pct95_pop, na.rm = T),
+    sum_pct95_pop_ndtr = sum(pct95_pop_ndtr, na.rm = T),
+    
+    mean_pct95_pop = mean(pct95_pop, na.rm = T),
+    mean_pct95_pop_ndtr = mean(pct95_pop_ndtr, na.rm = T),
+    
+    sum_pct95_persondays = sum(pct95_persondays, na.rm = T),
+    sum_pct95_persondays_ndtr = sum(pct95_persondays_ndtr, na.rm = T),
+    
+    mean_pct95_persondays = mean(pct95_persondays, na.rm = T),
+    mean_pct95_persondays_ndtr = mean(pct95_persondays_ndtr, na.rm = T),
+    
+    sum_pct95_days = sum(pct95_days, na.rm = T),
+    sum_pct95_days_ndtr = sum(pct95_days_ndtr, na.rm = T),
+    
+    mean_pct95_days = mean(pct95_days, na.rm = T),
+    mean_pct95_days_ndtr = mean(pct95_days_ndtr, na.rm = T),
+    
+    mean_pct95_median_duration = mean(pct95_median_duration, na.rm = T),
+    mean_pct95_median_duration_ndtr = mean(pct95_median_duration_ndtr, na.rm = T),
+    
+    median_pct95_median_duration = median(pct95_median_duration, na.rm = T),
+    median_pct95_median_duration_ndtr = median(pct95_median_duration_ndtr, na.rm = T)
+  ) 
+
+stats_cw_t <- stats_cw %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") 
+
+stats_cw_detrended <- stats_cw_t %>% 
+  filter(!str_detect(variable, "_ndtr$")) %>% 
+  rename(detrended = value)
+
+stats_cw_nondetrended <- stats_cw_t %>% 
+  filter(str_detect(variable, "_ndtr$")) %>% 
+  mutate(variable = sub("_ndtr$", "", variable)) %>% 
+  rename(non_detrended = value)
+
+stats_cw <- left_join(stats_cw_nondetrended, stats_cw_detrended, by = "variable") %>% 
+  mutate(
+    difference = non_detrended - detrended,
+    share = difference / non_detrended,
+    percentage = paste0(round(share * 100, digits = 2), "%")
+  ) %>% 
+  mutate(variable = str_replace(variable, "(.*)(_pct\\d{2})(.*)?", "\\1\\3\\2")) %>%  # Move the pctXX to the end of the strings
+  arrange(variable)
+
+
+stats_hw_t <- stats_hw %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") 
+
+stats_hw_detrended <- stats_hw_t %>% 
+  filter(!str_detect(variable, "_ndtr$")) %>% 
+  rename(detrended = value)
+
+stats_hw_nondetrended <- stats_hw_t %>% 
+  filter(str_detect(variable, "_ndtr$")) %>% 
+  mutate(variable = sub("_ndtr$", "", variable)) %>% 
+  rename(non_detrended = value)
+
+stats_hw <- left_join(stats_hw_nondetrended, stats_hw_detrended, by = "variable") %>% 
+  mutate(
+    difference = non_detrended - detrended,
+    share = difference / non_detrended,
+    percentage = paste0(round(share * 100, digits = 2), "%")
+  ) %>% 
+  mutate(variable = str_replace(variable, "(.*)(_pct\\d{2})(.*)?", "\\1\\3\\2")) %>%  # Move the pctXX to the end of the strings
+  arrange(variable)
+
+# Combine dataframes and export
+stats <- rbind(stats_cw, stats_hw)
+
+write.csv(stats, file = paste0(here("validation", "comparison-non-detrended", "results-figures"),"/stats_diffrences_threshold_exc_events.csv"), row.names = F)
+```

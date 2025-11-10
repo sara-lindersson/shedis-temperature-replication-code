@@ -1,0 +1,347 @@
+---
+title: 'Extracting validation data from E-OBS'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+This script extracts ensemble mean of TX and TN from [E-OBS](https://10.1029/2017JD028200), for each subnational unit and the specified period of interest. The script then joins these data with the results from MSWX.
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(knitr)
+library(here)
+library(tidyverse)
+library(sf)
+library(terra)
+library(exactextractr)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = FALSE) # TRUE if chunks should be run when document is knitted.
+```
+
+```{r setup, include=T}
+# Execute all notebook chunks in the grand-grandparent folder of the notebook
+knitr::opts_knit$set(root.dir = normalizePath("..."))
+```
+
+### Define file paths
+```{r}
+ph_in <- "F:/e-obs/"
+file_hw <- "tx_ens_mean_0.1deg_reg_v31.0e.nc"
+file_cw <- "tn_ens_mean_0.1deg_reg_v31.0e.nc"
+
+ph_out <- here("validation", "validation-eobs")
+
+# Define how many buffer days to include
+extra_days <- 7
+```
+
+### Import sample of subdivisions for disaster records
+Loads `subnat.rds` from script `01-emdat-gdis-link.Rmd`. This dataframe holds the sample of EM-DAT entries at the subnational level, with one row per _disno_ and administrative _subdivision_, accompanied by simplified polygons.
+```{r}
+subnat <- readRDS(here('data-processed','subnat.rds')) %>% 
+  select(disno, type, gadm_gid, continent, start, end, geometry) %>%
+  filter(continent == "Europe") %>% 
+  select(-continent) %>% 
+  mutate(
+    analysis_start = start - extra_days,
+    analysis_end = end + extra_days
+  )
+
+rm(extra_days)
+```
+
+### Filter `subnat` so we only keep the subdivisions that are (mostly) covered by E-OBS
+```{r}
+# Read one of the NetCDF files as a terra SpatRaster
+r <- rast(paste0(ph_in, file_hw))
+
+# Derive polygon of valid (non-NA) area
+r_poly <- as.polygons(!is.na(r[[1]]), dissolve = TRUE)
+
+# Convert raster polygon to sf
+r_poly_sf <- st_as_sf(r_poly) %>% 
+  filter(tx_1 == 1)
+
+# Filter subnat to distinct subdivisions
+subnat_extent <- subnat %>% 
+  select(gadm_gid, geometry) %>% 
+  distinct()
+
+# Keep only geometries within the raster extent
+subnat_within <- subnat_extent %>%
+  filter(st_within(geometry, st_union(r_poly_sf), sparse = FALSE))
+
+# Save list of gadm_gids to validate
+saveRDS(subnat_within$gadm_gid, file = paste0(ph_out, "data-processed/gadm_gid_list.rds"))
+
+rm(subnat_within, subnat_extent, r_poly_sf, r_poly, r)
+```
+
+### Filter subnat to ones covered by E-OBS
+```{r}
+# Filter subnat to the list of gadm_gids
+subnat <- subnat %>%
+  filter(gadm_gid %in% readRDS(file = paste0(ph_out, "data-processed/gadm_gid_list.rds")))
+```
+
+### Extract E-OBS data for heatwaves
+```{r}
+df <- subnat %>% 
+  filter(type == "Heat wave")
+
+# Load netcdf file
+r <- terra::rast(paste0(ph_in, file_hw))
+
+# Loop over rows in df and extract temperature data
+
+for (i in 1:nrow(df)){
+  
+  # Select relevant row
+  df_i <- df[i, ]
+  
+  # Subset layers from netCDF for period of analysis
+  r_sub <- r[[which(time(r) >= df_i$analysis_start & time(r) <= df_i$analysis_end)]]
+  
+  # Extract raster values and coverage fractions
+  extracted <- exact_extract(r_sub, df_i$geometry, include_xy = TRUE, include_cell = TRUE, progress = TRUE)
+  
+  # Get the dates
+  time_df <- data.frame(
+    date = time(r_sub),
+    layer = names(r_sub)
+  )
+  
+  # Create a tidy df of temperature and join dates
+  tidy_df <- extracted[[1]] %>% 
+    as_tibble() %>% 
+    pivot_longer(
+      cols = starts_with("tx"),
+      names_to = "layer",
+      values_to = "tx"
+    ) %>% 
+    left_join(time_df, by = "layer") %>% 
+    select(-layer)
+  
+  df_xy <- tidy_df %>% 
+    summarize(
+      xy_max_tx = round(max(tx), digits = 2),
+      xy_max_tx_date = date[which.max(tx)],
+      xy_max_tx_coord = paste0(round(x[which.max(tx)], digits = 2),
+                               '_',
+                               round(y[which.max(tx)], digits = 2)
+      )
+    )
+  
+  df_zonal <- tidy_df %>% 
+    select(-x, -y, -cell) %>% 
+    group_by(date) %>%
+    summarize(
+      zonal_tx = round(weighted.mean(tx, coverage_fraction, na.rm = TRUE), digits = 2)
+    ) %>% 
+    ungroup() %>% 
+    summarize(
+      zonal_max_tx = max(zonal_tx),
+      zonal_max_tx_date = date[which.max(zonal_tx)],
+      zonal_average_tx = round(mean(zonal_tx), digits = 2)
+    )
+  
+  df_i <- df_i %>% 
+    as.data.frame() %>% 
+    mutate(geometry = NULL)
+  
+  result_i <- cbind(
+    df_i,
+    df_zonal,
+    df_xy
+  )
+  
+  if (i == 1){
+    result <- result_i
+  } else {
+    result <- rbind(result, result_i)
+  }
+  
+}
+saveRDS(result, file = paste0(ph_out, "data-processed/result_heatwaves.rds"))
+
+rm(result, result_i)
+```
+
+### Extract E-OBS data for cold waves
+```{r}
+df <- subnat %>% 
+  filter(type == "Cold wave")
+
+# Load netcdf file
+r <- terra::rast(paste0(ph_in, file_cw))
+
+# Loop over rows in df and extract temperature data
+
+for (i in 1:nrow(df)){
+  
+  # Select relevant row
+  df_i <- df[i, ]
+  
+  # Subset layers from netCDF for period of analysis
+  r_sub <- r[[which(time(r) >= df_i$analysis_start & time(r) <= df_i$analysis_end)]]
+  
+  # Extract raster values and coverage fractions
+  extracted <- exact_extract(r_sub, df_i$geometry, include_xy = TRUE, include_cell = TRUE, progress = TRUE)
+  
+  # Get the dates
+  time_df <- data.frame(
+    date = time(r_sub),
+    layer = names(r_sub)
+  )
+  
+  # Create a tidy df of temperature and join dates
+  tidy_df <- extracted[[1]] %>% 
+    as_tibble() %>% 
+    pivot_longer(
+      cols = starts_with("tn"),
+      names_to = "layer",
+      values_to = "tn"
+    ) %>% 
+    left_join(time_df, by = "layer") %>% 
+    select(-layer)
+  
+  df_xy <- tidy_df %>% 
+    summarize(
+      xy_min_tn = round(min(tn), digits = 2),
+      xy_min_tn_date = date[which.min(tn)],
+      xy_min_tn_coord = paste0(round(x[which.min(tn)], digits = 2),
+                               '_',
+                               round(y[which.min(tn)], digits = 2)
+      )
+    )
+  
+  df_zonal <- tidy_df %>% 
+    select(-x, -y, -cell) %>% 
+    group_by(date) %>%
+    summarize(
+      zonal_tn = round(weighted.mean(tn, coverage_fraction, na.rm = TRUE), digits = 2)
+    ) %>% 
+    ungroup() %>% 
+    summarize(
+      zonal_min_tn = min(zonal_tn),
+      zonal_min_tn_date = date[which.min(zonal_tn)],
+      zonal_average_tn = round(mean(zonal_tn), digits = 2)
+    )
+  
+  df_i <- df_i %>% 
+    as.data.frame() %>% 
+    mutate(geometry = NULL)
+  
+  result_i <- cbind(
+    df_i,
+    df_zonal,
+    df_xy
+  )
+  
+  if (i == 1){
+    result <- result_i
+  } else {
+    result <- rbind(result, result_i)
+  }
+  
+}
+saveRDS(result, file = paste0(ph_out, "/data-processed/result_coldwaves.rds"))
+```
+
+### Export comparison between E-OBS and MSWX (SHEDIS)
+```{r}
+# Results from E-OBS
+eobs_heatwaves <- readRDS(file = paste0(ph_out, "/data-processed/result_heatwaves.rds")) %>% 
+  select(-start, -end, -analysis_start, -analysis_end, -type) %>% 
+  # Rename result columns
+  rename_with(
+    ~ paste0("eobs_", .x),          
+    .cols = -c(disno, gadm_gid)
+  )
+
+eobs_coldwaves <- readRDS(file = paste0(ph_out, "/data-processed/result_coldwaves.rds")) %>% 
+  select(-start, -end, -analysis_start, -analysis_end, -type) %>% 
+  # Rename result columns
+  rename_with(
+    ~ paste0("eobs_", .x),          
+    .cols = -c(disno, gadm_gid)
+  )
+
+# Results from MSWX
+shedis_heatwaves <- read.csv(file = here("data-output", "heatwaves", "shedis_heatwaves_subdivision.csv"), header = T)
+
+shedis_coldwaves <- read.csv(file = here("data-output", "coldwaves", "shedis_coldwaves_subdivision.csv"), header = T)
+
+# Match results
+df_heatwaves <- shedis_heatwaves %>% 
+  inner_join(eobs_heatwaves, by = c("disno", "gadm_gid")) %>%
+  select(
+    iso3c,
+    country,
+    disno,
+    subtype,
+    gadm_gid,
+    gadm_level,
+    gadm_name,
+    geometry_area_km2,
+    geometry_pop,
+    analysis_start,
+    analysis_end,
+    
+    mean_tx,
+    xy_max_tx,
+    xy_max_tx_date,
+    xy_max_tx_coord,
+    
+    starts_with("eobs_")
+  ) %>% 
+  select(-eobs_zonal_max_tx, -eobs_zonal_max_tx_date) %>% 
+  rename(
+    mswx_mean_tx = mean_tx,
+    mswx_xy_max_tx = xy_max_tx,
+    mswx_xy_max_tx_date = xy_max_tx_date,
+    mswx_xy_max_tx_coord = xy_max_tx_coord,
+    eobs_mean_tx = eobs_zonal_average_tx
+  )
+
+df_coldwaves <- shedis_coldwaves %>% 
+  inner_join(eobs_coldwaves, by = c("disno", "gadm_gid")) %>% 
+  select(
+    iso3c,
+    country,
+    disno,
+    subtype,
+    gadm_gid,
+    gadm_level,
+    gadm_name,
+    geometry_area_km2,
+    geometry_pop,
+    analysis_start,
+    analysis_end,
+    
+    mean_tn,
+    xy_min_tn,
+    xy_min_tn_date,
+    xy_min_tn_coord,
+    
+    starts_with("eobs_")
+  ) %>% 
+  select(-eobs_zonal_min_tn, -eobs_zonal_min_tn_date) %>% 
+  rename(
+    mswx_mean_tn = mean_tn,
+    mswx_xy_min_tn = xy_min_tn,
+    mswx_xy_min_tn_date = xy_min_tn_date,
+    mswx_xy_min_tn_coord = xy_min_tn_coord,
+    eobs_mean_tn = eobs_zonal_average_tn
+  )
+
+# Save validation results
+write.csv(df_heatwaves, file = paste0(ph_out, "/data-output/validation-results-heatwaves.csv"), row.names = F)
+write.csv(df_coldwaves, file = paste0(ph_out, "/data-output/validation-results-coldwaves.csv"), row.names = F)
+
+rm(list = ls())
+```
+
+End of script.

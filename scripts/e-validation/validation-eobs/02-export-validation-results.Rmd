@@ -1,0 +1,554 @@
+---
+title: 'Extracting validation data from E-OBS'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+This script performs validation analysis and exports results, using the ensemble mean of TX and TN from [E-OBS](https://10.1029/2017JD028200).
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(knitr)
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(tidyquant)
+library(ggpubr)
+library(bbplot)
+library(ggpmisc)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(scico)
+```
+
+```{r prevent-run, include=F}
+knitr::opts_chunk$set(eval = TRUE) # TRUE if chunks should be run when document is knitted.
+```
+
+```{r setup, include=T}
+# Execute all notebook chunks in the grand-grandparent folder of the notebook
+knitr::opts_knit$set(root.dir = normalizePath("..."))
+```
+
+### Define file paths and import data
+```{r}
+ph_in <- here("validation", "validation-eobs", "data-output")
+ph_out <- here("validation", "validation-eobs", "results-figures")
+
+# Import validation results
+df_hw <- read.csv(file = paste0(ph_in, "/validation-results-heatwaves.csv"), header = T)
+df_cw <- read.csv(file = paste0(ph_in, "/validation-results-coldwaves.csv"), header = T)
+```
+
+### Pre-process dataframes
+```{r}
+# Derive errors (e)
+df_hw <- df_hw %>% 
+  mutate(
+    year = year(analysis_start),
+    e_mean_tx = mswx_mean_tx - eobs_mean_tx,
+    e_xy_max_tx = mswx_xy_max_tx - eobs_xy_max_tx
+  )
+
+df_cw <- df_cw %>% 
+  mutate(
+    year = year(analysis_start),
+    e_mean_tn = mswx_mean_tn - eobs_mean_tn,
+    e_xy_min_tn = mswx_xy_min_tn - eobs_xy_min_tn 
+  )
+
+# Calculate summary statistics
+TX_stats <- df_hw %>% 
+  summarise(
+    n = sum(!is.na(e_mean_tx)),
+    MBE = mean(e_mean_tx),
+    MAE = mean(abs(e_mean_tx)),
+    RMSE = sqrt(mean(e_mean_tx^2)),
+    r = cor(mswx_mean_tx, eobs_mean_tx, use = "complete.obs")) %>% 
+  pivot_longer(
+    names_to = "statistic",
+    cols = everything()
+  ) %>% 
+  mutate(value = round(value, 2)) %>% 
+  rename(TX = value)
+
+TXx_stats <- df_hw %>% 
+  summarise(
+    n = sum(!is.na(e_xy_max_tx)),
+    MBE = mean(e_xy_max_tx),
+    MAE = mean(abs(e_xy_max_tx)),
+    RMSE = sqrt(mean(e_xy_max_tx^2)),
+    r = cor(mswx_xy_max_tx, eobs_xy_max_tx, use = "complete.obs")) %>% 
+  pivot_longer(
+    names_to = "statistic",
+    cols = everything()
+  ) %>% 
+  mutate(value = round(value, 2)) %>% 
+  rename(TXx = value)
+
+TN_stats <- df_cw %>% 
+  summarise(
+    n = sum(!is.na(e_mean_tn)),
+    MBE = mean(e_mean_tn),
+    MAE = mean(abs(e_mean_tn)),
+    RMSE = sqrt(mean(e_mean_tn^2)),
+    r = cor(mswx_mean_tn, eobs_mean_tn, use = "complete.obs")) %>% 
+  pivot_longer(
+    names_to = "statistic",
+    cols = everything()
+  ) %>% 
+  mutate(value = round(value, 2)) %>% 
+  rename(TN = value)
+
+TNn_stats <- df_cw %>% 
+  summarise(
+    n = sum(!is.na(e_xy_min_tn)),
+    MBE = mean(e_xy_min_tn),
+    MAE = mean(abs(e_xy_min_tn)),
+    RMSE = sqrt(mean(e_xy_min_tn^2)),
+    r = cor(mswx_xy_min_tn, eobs_xy_min_tn, use = "complete.obs")) %>% 
+  pivot_longer(
+    names_to = "statistic",
+    cols = everything()
+  ) %>% 
+  mutate(value = round(value, 2)) %>% 
+  rename(TNn = value)
+
+stats <- TN_stats %>% 
+  right_join(TX_stats, by = "statistic") %>% 
+  right_join(TNn_stats, by = "statistic") %>% 
+  right_join(TXx_stats, by = "statistic") 
+
+# Export stats
+write.csv(stats, paste0(ph_out, "/validation_results.csv"))
+
+rm(TN_stats, TNn_stats, TX_stats, TXx_stats, stats)
+```
+
+### Define general plotting parameters
+```{r}
+fill_hw <- "#bb2d34"
+fill_cw <- "#4f91b4"
+alpha <- .75
+lwd <- .2
+line_type <- "solid"
+line_col <- "grey"
+line_size <- .75
+```
+
+### Histogram of errors
+#### Note: Difference = E-OBS minus MSWX
+```{r}
+pa <- ggplot(df_cw, aes(x = e_mean_tn)) +
+  geom_histogram(colour = NA, alpha = alpha, lwd = lwd, fill = fill_cw) +
+  geom_vline(xintercept = mean(df_cw$e_mean_tn), linetype = line_type, color = line_col, linewidth = line_size) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = NULL,
+       x = 'Error TN (\u00B0C)')
+
+pb <- ggplot(df_hw, aes(x = e_mean_tx)) +
+  geom_histogram(colour = NA, alpha = alpha, lwd = lwd, fill = fill_hw) +
+  geom_vline(xintercept = mean(df_hw$e_mean_tx), linetype = line_type, color = line_col, linewidth = line_size) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = NULL,
+       x = 'Error TX (\u00B0C)')
+
+pc <- ggplot(df_cw, aes(x = e_xy_min_tn)) +
+  geom_histogram(colour = NA, alpha = alpha, lwd = lwd, fill = fill_cw) +
+  geom_vline(xintercept = mean(df_cw$e_xy_min_tn), linetype = line_type, color = line_col, linewidth = line_size) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = NULL,
+       x = 'Error xy TNn (\u00B0C)')
+
+pd <- ggplot(df_hw, aes(x = e_xy_max_tx)) +
+  geom_histogram(colour = NA, alpha = alpha, lwd = lwd, fill = fill_hw) +
+  geom_vline(xintercept = mean(df_hw$e_xy_max_tx), linetype = line_type, color = line_col, linewidth = line_size) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(y = NULL,
+       x = 'Error xy TXx (\u00B0C)')
+
+fig <- ggarrange(pa, pb, pc, pd, nrow = 2, ncol = 2)
+
+# Export figure
+finalise_plot(plot_name = fig,
+              save_filepath = paste0(ph_out, "/histograms_errors.pdf"),
+              source_name = "Gray lines = MBE",
+              width_pixels = 800, height_pixels = 500)
+
+rm(pa, pb, pc, pd)
+```
+
+### Density plots
+```{r}
+alpha = .3
+fill_TNn <- "#4c3858"
+fill_TXx <- "#874f44"
+
+# Cold waves panel: e_mean_tn and e_xy_min_tn
+df_cw_long <- df_cw %>%
+  pivot_longer(
+    cols = c(e_mean_tn, e_xy_min_tn),
+    names_to = "error_type",
+    values_to = "error"
+  )
+
+# Heat waves panel: e_mean_tx and e_xy_max_tx
+df_hw_long <- df_hw %>%
+  pivot_longer(
+    cols = c(e_mean_tx, e_xy_max_tx),
+    names_to = "error_type",
+    values_to = "error"
+  )
+
+cw_plot <- ggplot(df_cw_long, aes(x = error, color = error_type, fill = error_type)) +
+  geom_density(alpha = alpha) +
+  scale_color_manual(values = c("e_mean_tn" = fill_cw, "e_xy_min_tn" = fill_TNn)) +
+  scale_fill_manual(values = c("e_mean_tn" = fill_cw, "e_xy_min_tn" = fill_TNn)) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = 'Error TN (\u00B0C)', y = NULL) +
+  scale_x_continuous(breaks = seq(-10, 10, by = 2), limits = c(-12, 12)) +
+  scale_y_continuous(breaks = seq(0, 1, by = .2), limits = c(0, 1))
+
+hw_plot <- ggplot(df_hw_long, aes(x = error, color = error_type, fill = error_type)) +
+  geom_density(alpha = 0.3) +
+  scale_color_manual(values = c("e_mean_tx" = fill_hw, "e_xy_max_tx" = fill_TXx)) +
+  scale_fill_manual(values = c("e_mean_tx" = fill_hw, "e_xy_max_tx" = fill_TXx)) +
+  theme_tq() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = 'Error TX (\u00B0C)', y = NULL) +
+  scale_x_continuous(breaks = seq(-10, 10, by = 2), limits = c(-12, 12)) +
+  scale_y_continuous(breaks = seq(0, 1, by = .2), limits = c(0, 1))
+
+fig <- ggarrange(cw_plot, hw_plot, nrow = 1, ncol = 2, legend = "top")
+
+# Export figure
+finalise_plot(plot_name = fig,
+              save_filepath = paste0(ph_out, "/density_errors.pdf"),
+              source_name = "",
+              width_pixels = 600, height_pixels = 300)
+
+rm(fig, df_cw_long, df_hw_long, hw_plot, cw_plot)
+```
+
+### Scatter plots
+```{r}
+alpha <- 0.2
+size <- 4
+
+p1 <- ggplot(df_cw, aes(x = eobs_mean_tn, y = mswx_mean_tn)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "gray40", linewidth = 0.8, alpha = .5) +
+  geom_point(alpha = alpha, size = size, color = fill_cw, shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               formula = y ~ x, parse = TRUE, label.x.npc = "left", label.y.npc = 0.95,
+               size = 4) +
+  theme_tq() +
+  coord_equal(xlim = c(-40, 20), ylim = c(-40, 20)) + 
+  scale_x_continuous(breaks = seq(-40, 20, by = 10)) +
+  scale_y_continuous(breaks = seq(-40, 20, by = 10)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = "E-OBS (°C)", y = "MSWX (°C)", title = "TN")
+
+p3 <- ggplot(df_cw, aes(x = eobs_xy_min_tn, y = mswx_xy_min_tn)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "gray40", linewidth = 0.8, alpha = .5) +
+  geom_point(alpha = alpha, size = size, color = fill_cw, shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               formula = y ~ x, parse = TRUE, label.x.npc = "left", label.y.npc = 0.95,
+               size = 4) +
+  theme_tq() +
+  coord_equal(xlim = c(-40, 20), ylim = c(-40, 20)) + 
+  scale_x_continuous(breaks = seq(-40, 20, by = 10)) +
+  scale_y_continuous(breaks = seq(-40, 20, by = 10)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = "E-OBS (°C)", y = "MSWX (°C)", title = "TNn")
+
+p2 <- ggplot(df_hw, aes(x = eobs_mean_tx, y = mswx_mean_tx)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "gray40", linewidth = 0.8, alpha = .5) +
+  geom_point(alpha = alpha, size = size, color = fill_hw, shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               formula = y ~ x, parse = TRUE, label.x.npc = "left", label.y.npc = 0.95,
+               size = 4) +
+  theme_tq() +
+  coord_equal(xlim = c(10, 50), ylim = c(10, 50)) +
+  scale_x_continuous(breaks = seq(10, 50, by = 10)) +
+  scale_y_continuous(breaks = seq(10, 50, by = 10)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = "E-OBS (°C)", y = "MSWX (°C)", title = "TX")
+
+p4 <- ggplot(df_hw, aes(x = eobs_xy_max_tx, y = mswx_xy_max_tx)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "gray40", linewidth = 0.8, alpha = .5) +
+  geom_point(alpha = alpha, size = size, color = fill_hw, shape = 16) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               formula = y ~ x, parse = TRUE, label.x.npc = "left", label.y.npc = 0.95,
+               size = 4) +
+  theme_tq() +
+  coord_equal(xlim = c(10, 50), ylim = c(10, 50)) +
+  scale_x_continuous(breaks = seq(10, 50, by = 10)) +
+  scale_y_continuous(breaks = seq(10, 50, by = 10)) +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        legend.title = element_blank()) +
+  labs(x = "E-OBS (°C)", y = "MSWX (°C)", title = "TXx")
+
+fig <- ggarrange(p1, p3, p2, p4, nrow = 2, ncol = 2, legend = "top")
+
+# Export figure
+finalise_plot(plot_name = fig,
+              save_filepath = paste0(ph_out, "/scatter_plots.pdf"),
+              source_name = "",
+              width_pixels = 500, height_pixels = 500)
+
+rm(p1, p2, p3, p4, fig)
+```
+
+# Map of errors per subdivision
+```{r}
+
+# Summarize mean e per subdivision
+df_cw2 <- df_cw %>% 
+  group_by(gadm_gid) %>% 
+  summarise(
+    e_TN = mean(e_mean_tn),
+    e_TNn = mean(e_xy_min_tn)
+  ) %>% 
+  ungroup()
+
+df_hw2 <- df_hw %>% 
+  group_by(gadm_gid) %>% 
+  summarise(
+    e_TX = mean(e_mean_tx),
+    e_TXx = mean(e_xy_max_tx)
+  ) %>% 
+  ungroup()
+
+# Load polygons
+df <- readRDS(here('data-processed', 'subnat.rds')) %>%
+  filter(continent == "Europe") %>% 
+  select(iso3c, gadm_gid, gadm_level, gadm_name, country, geometry) %>% 
+  distinct(gadm_gid, .keep_all = TRUE)
+
+# Join polygons
+df_cw2 <- df_cw2 %>% 
+  left_join(df, by = "gadm_gid") %>% 
+  st_as_sf()
+
+df_hw2 <- df_hw2 %>% 
+  left_join(df, by = "gadm_gid") %>% 
+  st_as_sf()
+
+# Load country outlines
+europe <- ne_countries(scale = "large", returnclass = "sf") %>%  filter(continent == "Europe")
+
+# Define projection and transform
+crs <- 8857 # Equal Earth
+europe <- st_transform(europe, crs = st_crs(crs))
+df_cw2 <- st_transform(df_cw2, crs = st_crs(crs))
+df_hw2 <- st_transform(df_hw2, crs = st_crs(crs))
+
+# Plotting parameters
+plot_params <- tibble(
+  landmass_color = "#e0e0e0",
+  stroke_color = "white",
+  legend_position = "bottom"
+)
+
+# Define buffer fraction (e.g., 5%)
+buf_frac <- 0.05
+
+# Get bounding box of df_cw2 and df_hw2 combined
+geom_list <- rbind(
+  df_cw2 %>%  select(geometry),
+  df_hw2 %>% select(geometry)
+)
+
+bbox <- st_bbox(geom_list)
+
+# Compute buffer size
+xrange <- bbox["xmax"] - bbox["xmin"]
+yrange <- bbox["ymax"] - bbox["ymin"]
+
+# Expand bounding box
+bbox_buf <- bbox
+bbox_buf["xmin"] <- bbox["xmin"] - buf_frac * xrange
+bbox_buf["xmax"] <- bbox["xmax"] + buf_frac * xrange
+bbox_buf["ymin"] <- bbox["ymin"] - buf_frac * yrange
+bbox_buf["ymax"] <- bbox["ymax"] + buf_frac * yrange
+
+# Filter based on gadm level
+df_cw2_1 <- df_cw2 %>% filter(gadm_level == 1)
+df_cw2_2 <- df_cw2 %>% filter(gadm_level == 2)
+
+df_hw2_1 <- df_hw2 %>% filter(gadm_level == 1)
+df_hw2_2 <- df_hw2 %>% filter(gadm_level == 2)
+
+# Plot Level 1
+m_TN_1 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_cw2_1, aes(fill = e_TN), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TN") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TNn_1 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_cw2_1, aes(fill = e_TNn), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TNn") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TX_1 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_hw2_1, aes(fill = e_TX), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TX") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TXx_1 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_hw2_1, aes(fill = e_TXx), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TXx") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+fig_1 <- ggarrange(m_TN_1, m_TNn_1, m_TX_1, m_TXx_1, ncol = 2, nrow = 2)
+
+finalise_plot(plot_name = fig_1,
+              save_filepath = here("validation","validation-eobs", "results-figures", "map_level1.pdf"),
+              source_name = "Projection Equal Earth",
+              width_pixels = 800, height_pixels = 600)
+
+# Plot level 2
+
+m_TN_2 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_cw2_2, aes(fill = e_TN), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TN") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TNn_2 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_cw2_2, aes(fill = e_TNn), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TNn") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TX_2 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_hw2_2, aes(fill = e_TX), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TX") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+m_TXx_2 <- ggplot() +
+  geom_sf(data = europe, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(data = df_hw2_2, aes(fill = e_TXx), color = NA) +
+  scale_fill_scico(palette = "vik", midpoint = 0, name = "e TXx") +
+  coord_sf(
+    xlim = c(bbox_buf["xmin"], bbox_buf["xmax"]),
+    ylim = c(bbox_buf["ymin"], bbox_buf["ymax"]),
+    expand = FALSE
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  cowplot::panel_border(remove = TRUE)
+
+fig_2 <- ggarrange(m_TN_2, m_TNn_2, m_TX_2, m_TXx_2, ncol = 2, nrow = 2)
+
+finalise_plot(plot_name = fig_2,
+              save_filepath = here("validation","validation-eobs", "results-figures", "map_level2.pdf"),
+              source_name = "Projection Equal Earth",
+              width_pixels = 800, height_pixels = 600)
+
+```
+End of script.
