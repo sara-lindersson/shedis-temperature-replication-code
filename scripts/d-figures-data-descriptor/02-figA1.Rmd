@@ -1,0 +1,167 @@
+---
+title: 'Figure A1'
+author: 'Sara Lindersson'
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+```{r prevent-run, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+This script generates Figure A1 in the data descriptor article of SHEDIS-Temperature by Lindersson & Messori (2025).
+
+```{r libraries, warning=F, message=F, collapse=T}
+library(knitr)
+library(dplyr)
+library(here)
+library(tidyverse)
+library(readxl)
+library(countrycode)
+library(sf)
+library(rmapshaper)
+library(units)
+library(nngeo)
+library(stringi)
+library(leaflet)
+library(purrr)
+library(ggplot2)
+library(tidyquant)
+library(bbplot)
+library(countrycode)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(RColorBrewer)
+library(ggrepel)
+library(viridis)
+library(ggsci)
+library(cowplot)
+library(tibble)
+library(ggridges)
+library(ggpmisc)
+library(ggpubr)
+library(mapview)
+library(palr)
+library(terra)
+library(viridis)
+library(tidyterra)
+library(scales)
+library(patchwork)
+```
+
+```{r setup, include=TRUE}
+# Execute all notebook chunks in the grandparent folder of the notebook
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+## Fig A1 - World maps with subnational geometries
+```{r}
+## World map with sample
+# Projection. 
+crs <- 8857 # Equal Earth
+
+# Color palette
+palette <- c("#f8a07e", "#eb7f86", "#ce6693", "#a059a0", "#5c53a5")
+
+# Load basemap from Natural Earth
+world <- ne_countries(scale = "medium", returnclass = "sf") %>% 
+  filter(name != "Antarctica") %>%
+  select(adm0_a3, geometry) %>%
+  rename(iso3c = adm0_a3)
+
+# Load sample
+df <- readRDS(here('data-processed', 'subnat.rds')) %>% 
+  select(gadm_gid, gadm_level, geometry)
+
+# Transform projections
+world <- st_transform(world, crs = st_crs(crs))
+df <- st_transform(df, crs = st_crs(crs))
+
+df_1 <- df %>% filter(gadm_level == 1) %>% count(gadm_gid, name = "n")
+df_2 <- df %>% filter(gadm_level ==2) %>% count(gadm_gid, name = "n")
+
+# Plotting parameters
+plot_params <- tibble(
+  landmass_color = "#e0e0e0",
+  stroke_color = "white",
+  point_size = 2.5, # Size points on map
+  alpha_point_fill = 0.3, # Transparency fill color points
+  alpha_point_stroke = 0.3, # Transparency stroke color points
+  lwd_point_stroke = 0.01, # Thickness stroke points
+  legend_position = "bottom"
+)
+
+# Define breaks
+breaks <- c(1, 2, 5, 10, 15, max(df_1$n, na.rm = TRUE))
+
+# Create a categorical (factor) version of n
+df_1 <- df_1 %>%
+  mutate(
+    n_group = cut(
+      n,
+      breaks = breaks,
+      include.lowest = TRUE,
+      dig.lab = 5
+    )
+  )
+
+df_2 <- df_2 %>%
+  mutate(
+    n_group = cut(
+      n,
+      breaks = breaks,
+      include.lowest = TRUE,
+      dig.lab = 5
+    )
+  )
+
+# Plot
+m1 <- ggplot() +
+  geom_sf(data = world, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(
+    data = df_1,
+    aes(fill = n_group),
+    color = NA,
+    linewidth = plot_params$lwd_point_stroke
+  ) +
+  scale_fill_manual(
+    values = palette,
+    drop = FALSE,
+    name = NULL
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  guides(fill = guide_legend(title = NULL, nrow = 1)) +
+  cowplot::panel_border(remove = TRUE) +
+  theme(legend.position = "bottom")
+
+m2 <- ggplot() +
+  geom_sf(data = world, color = NA, fill = plot_params$landmass_color) +
+  geom_sf(
+    data = df_2,
+    aes(fill = n_group),
+    color = NA,
+    linewidth = plot_params$lwd_point_stroke
+  ) +
+  scale_fill_manual(
+    values = palette,
+    drop = FALSE,
+    name = NULL
+  ) +
+  cowplot::theme_map() +
+  theme(panel.grid.major = element_line(color = "transparent")) +
+  guides(fill = guide_legend(title = NULL, nrow = 1)) +
+  cowplot::panel_border(remove = TRUE) +
+  theme(legend.position = "bottom")
+
+# Export
+finalise_plot(plot_name = m1,
+              save_filepath = here("figures","fA1a.pdf"),
+              source_name = "Projection Equal Earth",
+              width_pixels = 800, height_pixels = 500)
+
+finalise_plot(plot_name = m2,
+              save_filepath = here("figures","fA1b.pdf"),
+              source_name = "Projection Equal Earth",
+              width_pixels = 800, height_pixels = 500)
+```
